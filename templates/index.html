@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html dir="rtl" lang="fa">
+<head>
+  <meta charset="utf-8">
+  <title>گزارش فروش</title>
+  <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}">
+
+  <!-- تعریف فونت محلی -->
+  <style>
+    @font-face {
+      font-family: 'Vazirmatn';
+      src: url("/static/fonts/Vazirmatn-Regular.ttf") format("truetype");
+      font-weight: normal;
+      font-style: normal;
+      font-display: swap;
+    }
+
+    body {
+      font-family: 'Vazirmatn', Tahoma, sans-serif;
+      background-color: #f5f5f5;
+      text-align: center;
+      padding: 20px;
+      margin: 0;
+    }
+
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      background: white;
+      padding: 20px;
+      box-shadow: 0 0 10px rgba(0,0,0,0.1);
+      border-radius: 12px;
+    }
+
+    h1 {
+      color: #2c3e50;
+      font-weight: 600;
+      margin-bottom: 30px;
+      font-size: 24px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>📊 گزارش فروش فروشگاه‌ها</h1>
+
+    <!-- نمودار matplotlib -->
+    <img src="{{ url_for('static', filename=chart_img) }}" alt="نمودار فروش" style="width: 100%; max-width: 1000px; height: auto;">
+
+  </div>
+</body>
+</html>
