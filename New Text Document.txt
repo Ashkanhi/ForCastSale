@@ -1,0 +1,7 @@
+server: نام سرور SQL Server (مثلاً localhost یا SQL01)
+database: نام دیتابیس شما (مثلاً SalesDW)
+table: نام جدول فروش (مثلاً FactSales)
+date_column: نام ستون تاریخ (مثلاً OrderDate)
+sales_column: نام ستون مبلغ فروش (مثلاً SalesAmount)
+forecast_days: تعداد روزهایی که می‌خواهی پیش‌بینی کنی (پیش‌فرض: 30)
+min_data_days: حداقل تعداد روز داده برای اجرای مدل (پیش‌فرض: 60)
