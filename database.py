@@ -1,66 +1,76 @@
-import pyodbc                          # برای اتصال به SQL Server
-from datetime import datetime, timedelta  # برای محاسبات تاریخ
-from config_loader import load_config  # برای خواندن تنظیمات
+# ===============================
+# database.py
+# اتصال به SQL Server و گرفتن داده‌های فروش
+# ===============================
+
+import pyodbc
+from datetime import datetime, timedelta
+from config_loader import load_config
 
 def get_db_connection(config):
     """
-    یک اتصال به دیتابیس ایجاد می‌کند
+    ایجاد اتصال به دیتابیس SQL Server
     """
-    db_config = config['DATABASE']  # خواندن بخش DATABASE از فایل ini
+    db_config = config['DATABASE']
     server = db_config['server']
     database = db_config['database']
     use_windows_auth = db_config.getboolean('use_windows_auth', fallback=False)
-    
+
     if use_windows_auth:
-        # اتصال با اعتبارسنجی ویندوز
-        conn_str = f"DRIVER={{ODBC Driver 17 for SQL Server}};" \
-                   f"SERVER={server};DATABASE={database};Trusted_Connection=yes;"
+        conn_str = (
+            f"DRIVER={{ODBC Driver 17 for SQL Server}};"
+            f"SERVER={server};DATABASE={database};Trusted_Connection=yes;"
+        )
     else:
-        # اتصال با نام کاربری و رمز عبور
         username = db_config['username']
         password = db_config['password']
-        conn_str = f"DRIVER={{ODBC Driver 17 for SQL Server}};" \
-                   f"SERVER={server};DATABASE={database};UID={username};PWD={password}"
-    
-    # برگرداندن اتصال
+        conn_str = (
+            f"DRIVER={{ODBC Driver 17 for SQL Server}};"
+            f"SERVER={server};DATABASE={database};UID={username};PWD={password}"
+        )
+
     return pyodbc.connect(conn_str)
 
-def fetch_sales_data(config, days_back: int = 90):
-    """
-    داده‌های فروش را برای 'days_back' روز گذشته برمی‌گرداند
-    """
-    conn = get_db_connection(config)  # ایجاد اتصال
 
-    # نام جدول و ستون‌ها از فایل تنظیمات
+def fetch_avg_daily_net_sales_last_3_months(config):
+    """
+    گرفتن میانگین فروش روزانه ۳ ماه گذشته
+    شامل روزهایی که فروش نداشته‌اند (0 لحاظ می‌شوند)
+    """
+
+    conn = get_db_connection(config)
+    cursor = conn.cursor()
+
+    # نام جدول و ستون‌ها از فایل config.ini
     table = config['DATABASE']['table']
     date_col = config['DATABASE']['date_column']
     sales_col = config['DATABASE']['sales_column']
 
-    # محاسبه تاریخ شروع (YYYYMMDD)
-    cutoff_date = (datetime.today() - timedelta(days=days_back)).strftime("%Y%m%d")
+    # تاریخ ۳ ماه قبل
+    start_date = (datetime.today() - timedelta(days=90)).strftime("%Y%m%d")
 
-    # ساخت کوئری SQL
+    # کوئری SQL
+    # LEFT JOIN با DimBusinessDate برای لحاظ کردن روزهای بدون فروش
     query = f"""
-    SELECT {date_col}, {sales_col}
-    FROM {table}
-    WHERE {date_col} >= ?
-      AND {sales_col} IS NOT NULL
-      AND {sales_col} > 0
-    ORDER BY {date_col}
+    WITH DailySales AS (
+        SELECT 
+            DB.BusinessDay,
+            ISNULL(SUM(FS.{sales_col}), 0) AS DailyNetSales
+        FROM DimBusinessDate DB
+        LEFT JOIN {table} FS
+            ON FS.{date_col} = DB.BusinessDay
+        WHERE DB.BusinessDayDate >= ?
+          AND DB.BusinessDayDate < CAST(GETDATE() AS DATE)
+        GROUP BY DB.BusinessDay
+    )
+    SELECT AVG(DailyNetSales) AS AvgDailyNetSales
+    FROM DailySales;
     """
 
-    # اجرای کوئری
-    cursor = conn.cursor()
-    cursor.execute(query, cutoff_date)
-    rows = cursor.fetchall()
-    conn.close()  # بستن اتصال مهم است
+    cursor.execute(query, start_date)
+    row = cursor.fetchone()
+    conn.close()
 
-    # تبدیل نتایج به لیستی از دیکشنری‌ها
-    data = []
-    for row in rows:
-        data.append({
-            "date": row[0],        # تاریخ فروش
-            "sales": float(row[1]) # مقدار فروش
-        })
-
-    return data
+    if row and row[0]:
+        return float(row[0])
+    return 0.0

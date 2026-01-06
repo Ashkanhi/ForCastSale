@@ -1,70 +1,108 @@
-import sys
-from config_loader import load_config
-from database import fetch_sales_data
-from forecast_logic import estimate_usd_rate_history, calculate_dollar_adjusted_sales, calculate_three_month_target
-import matplotlib.pyplot as plt  # برای رسم نمودار
+# ===============================
+# main.py
+# اجرای برنامه با نمودار اصلاح شده
+# ===============================
 
+import sys
+import matplotlib
+matplotlib.use("TkAgg")
+import matplotlib.pyplot as plt
+
+import arabic_reshaper
+from bidi.algorithm import get_display
+
+from config_loader import load_config
+from database import fetch_avg_daily_net_sales_last_3_months
+from forecast_logic import calculate_three_month_target
+
+# ===============================
+# نمایش فارسی
+# ===============================
+def fa(text: str) -> str:
+    reshaped_text = arabic_reshaper.reshape(text)
+    return get_display(reshaped_text)
+
+# ===============================
+# رسم نمودار
+# ===============================
+def plot_sales_comparison(avg_daily_sales, target_three_month):
+    months = ["-3","-2","-1","+1","+2","+3"]
+
+    # تبدیل واحد به میلیون تومان برای خوانایی
+    avg_monthly_sales = (avg_daily_sales * 30) / 1_000_000
+    future_monthly_target = (target_three_month / 3) / 1_000_000
+
+    values = [
+        avg_monthly_sales, avg_monthly_sales, avg_monthly_sales,
+        future_monthly_target, future_monthly_target, future_monthly_target
+    ]
+
+    plt.figure(figsize=(9,5))
+    plt.plot(months, values, marker='o', linewidth=2, color='blue')
+    plt.title(fa("مقایسه فروش گذشته با هدف فروش سه ماه آینده"))
+    plt.xlabel(fa("ماه"))
+    plt.ylabel(fa("مبلغ فروش (میلیون تومان)"))
+    plt.ylim(0, max(values)*1.2)
+    plt.grid(True)
+
+    # نمایش عدد هر نقطه روی نمودار
+    for i, v in enumerate(values):
+        plt.text(i, v + 0.02*max(values), f"{v:.1f}", ha='center', fontsize=10)
+
+    plt.show(block=True)
+
+# ===============================
+# برنامه اصلی
+# ===============================
 def main():
-    # مرحله 1: خواندن تنظیمات
     config = load_config()
 
-    # مرحله 2: گرفتن نرخ دلار و تورم از کاربر
+    # ---------------------------
+    # گرفتن ورودی‌ها از کاربر
+    # ---------------------------
     try:
         current_usd = float(input("نرخ دلار جاری (تومان): ").strip())
-        future_usd = float(input("نرخ دلار پیش‌بینی‌شده برای ماه آینده (تومان): ").strip())
-        inflation_rate = float(input("درصد تورم (مثلاً 10): ").strip()) / 100
+        future_usd = float(input("نرخ دلار پیش‌بینی‌شده (تومان): ").strip())
+        inflation_rate = float(input("درصد تورم (مثلاً 5): ").strip()) / 100
     except ValueError:
-        print("❌ ورودی‌ها باید عدد باشند!")
+        print("❌ لطفاً فقط عدد وارد کنید")
         sys.exit(1)
 
-    # مرحله 3: گرفتن داده‌های فروش 3 ماه گذشته
-    sales_data = fetch_sales_data(config, days_back=90)
-    if not sales_data:
-        print("❌ داده‌ای برای 3 ماه گذشته پیدا نشد!")
+    # ---------------------------
+    # میانگین فروش روزانه ۳ ماه گذشته
+    # ---------------------------
+    avg_daily_sales = fetch_avg_daily_net_sales_last_3_months(config)
+    if avg_daily_sales == 0:
+        print("❌ داده‌ای برای سه ماه اخیر پیدا نشد")
         sys.exit(1)
 
-    # مرحله 4: تخمین نرخ دلار روزهای گذشته
-    usd_history = estimate_usd_rate_history(current_usd, days_back=90)
+    # ---------------------------
+    # محاسبه هدف فروش ۳ ماه آینده
+    # ---------------------------
+    target_three_month = calculate_three_month_target(
+        avg_daily_sales,
+        current_usd,
+        future_usd,
+        inflation_rate,
+        days=90
+    )
 
-    # مرحله 5: تبدیل فروش‌ها به دلار
-    usd_sales = calculate_dollar_adjusted_sales(sales_data, usd_history)
-    if not usd_sales:
-        print("❌ تبدیل فروش‌ها به دلار موفق نبود!")
-        sys.exit(1)
+    # ---------------------------
+    # نمایش نتایج عددی
+    # ---------------------------
+    print("\n✅ نتایج نهایی (فرمول ساده):")
+    print(f"میانگین فروش روزانه گذشته: {avg_daily_sales:,.0f} تومان")
+    print(f"نرخ دلار آینده: {future_usd:,.0f} تومان")
+    print(f"درصد تورم: {inflation_rate*100:.1f} %")
+    print(f"🎯 هدف فروش سه ماه آینده: {target_three_month:,.0f} تومان")
 
-    # مرحله 6: محاسبه میانگین فروش دلاری
-    avg_usd_sales = sum(usd_sales) / len(usd_sales)
+    # ---------------------------
+    # رسم نمودار
+    # ---------------------------
+    plot_sales_comparison(avg_daily_sales, target_three_month)
 
-    # مرحله 7: محاسبه هدف 3 ماه آینده با تورم
-    target_rial = calculate_three_month_target(avg_usd_sales, future_usd, inflation_rate)
-
-    # مرحله 8: نمایش نتایج
-    print("\n✅ نتایج:")
-    print(f"میانگین فروش واقعی (دلاری): {avg_usd_sales:,.2f} $")
-    print(f"نرخ دلار پیش‌بینی‌شده: {future_usd:,.0f} تومان")
-    print(f"🎯 هدف فروش 3 ماه آینده: {target_rial:,.0f} تومان")
-
-    # مرحله 9: رسم نمودار
-    plot_sales_comparison(usd_sales, target_rial)
-
-def plot_sales_comparison(past_sales, future_target):
-    """
-    رسم نمودار مقایسه فروش گذشته و هدف آینده
-    """
-    months = ["-3", "-2", "-1", "+1", "+2", "+3"]
-
-    past_avg = sum(past_sales) / len(past_sales)
-    future_monthly = future_target / 3
-
-    values = [past_avg, past_avg, past_avg, future_monthly, future_monthly, future_monthly]
-
-    plt.figure(figsize=(8,5))
-    plt.plot(months, values, marker='o', color='blue')
-    plt.title("مقایسه فروش گذشته و هدف 3 ماه آینده")
-    plt.xlabel("ماه")
-    plt.ylabel("مبلغ فروش (تومان)")
-    plt.grid(True)
-    plt.show()
-
+# ===============================
+# اجرای برنامه
+# ===============================
 if __name__ == "__main__":
     main()
