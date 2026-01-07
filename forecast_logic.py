@@ -1,51 +1,39 @@
-# ===============================
-# forecast_logic.py
-# محاسبات پیش‌بینی فروش
-# ===============================
-
-from typing import List
-import numpy as np
-from sklearn.linear_model import LinearRegression
-
-def calculate_three_month_target(
-    avg_daily_sales: float,
-    current_usd: float,
-    future_usd: float,
-    inflation_rate: float,
-    days: int = 90
-) -> float:
+def forecast_next_3_months_by_usd(
+    monthly_sales,
+    usd_current,
+    usd_future
+):
     """
-    محاسبه هدف فروش سه ماه آینده
-    بر اساس فرمول ساده:
-    Target = ((avg_daily_sales / current_usd) * future_usd) * (1+inflation) * days
-    """
-    sales_power_usd = avg_daily_sales / current_usd
-    future_daily_sales = sales_power_usd * future_usd
-    future_daily_sales_with_inflation = future_daily_sales * (1 + inflation_rate)
-    return future_daily_sales_with_inflation * days
-
-
-def predict_sales_trend(sales_data: List[float], days_future: int = 90) -> float:
-    """
-    پیش‌بینی فروش سه ماه آینده با خط روند ساده (Linear Regression)
-    sales_data: لیست فروش روزانه گذشته
-    days_future: تعداد روزهای آینده
+    این تابع فروش ۳ ماه آینده را فقط بر اساس تغییر نرخ دلار
+    پیش‌بینی می‌کند (بدون تورم)
     """
 
-    if len(sales_data) == 0:
-        return 0.0
+    # -----------------------------
+    # لیست خروجی پیش‌بینی‌ها
+    # -----------------------------
+    forecasts = []
 
-    # شماره روزها به عنوان X
-    X = np.arange(len(sales_data)).reshape(-1, 1)
-    y = np.array(sales_data)
+    # -----------------------------
+    # فروش آخرین ماه واقعی
+    # (فرض می‌کنیم آخرین رکورد جدیدترین ماه است)
+    # -----------------------------
+    last_month_sales = monthly_sales[-1]["sales"]
 
-    model = LinearRegression()
-    model.fit(X, y)
+    # -----------------------------
+    # نسبت تغییر دلار
+    # مثال: دلار از 50 به 75 → نسبت = 1.5
+    # -----------------------------
+    usd_ratio = usd_future / usd_current
 
-    # پیش‌بینی روزهای آینده
-    X_future = np.arange(len(sales_data), len(sales_data) + days_future).reshape(-1, 1)
-    y_pred = model.predict(X_future)
+    # -----------------------------
+    # پیش‌بینی ماه +1 ، +2 ، +3
+    # -----------------------------
+    for i in range(1, 4):
 
-    # جمع کل پیش‌بینی ۳ ماه آینده
-    total_future_sales = max(0, np.sum(y_pred))  # جلوگیری از مقادیر منفی
-    return total_future_sales
+        # فرمول اصلی:
+        # Future = LastMonth × (USD_Future / USD_Current)^i
+        future_sales = last_month_sales * (usd_ratio ** i)
+
+        forecasts.append(future_sales)
+
+    return forecasts

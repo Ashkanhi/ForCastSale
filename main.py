@@ -1,9 +1,9 @@
 # ===============================
-# main.py
-# اجرای برنامه با نمودار اصلاح شده
+# main.py - نسخه نهایی با رنگ متفاوت برای پیش‌بینی
 # ===============================
+import tkinter as tk
+from tkinter import messagebox, simpledialog
 
-import sys
 import matplotlib
 matplotlib.use("TkAgg")
 import matplotlib.pyplot as plt
@@ -12,97 +12,129 @@ import arabic_reshaper
 from bidi.algorithm import get_display
 
 from config_loader import load_config
-from database import fetch_avg_daily_net_sales_last_3_months
-from forecast_logic import calculate_three_month_target
+from database import fetch_monthly_sales_last_3_months
+from forecast_logic import forecast_next_3_months_by_usd
 
-# ===============================
-# نمایش فارسی
-# ===============================
-def fa(text: str) -> str:
-    reshaped_text = arabic_reshaper.reshape(text)
-    return get_display(reshaped_text)
 
-# ===============================
-# رسم نمودار
-# ===============================
-def plot_sales_comparison(avg_daily_sales, target_three_month):
-    months = ["-3","-2","-1","+1","+2","+3"]
+def fa(text):
+    reshaped = arabic_reshaper.reshape(text)
+    return get_display(reshaped)
 
-    # تبدیل واحد به میلیون تومان برای خوانایی
-    avg_monthly_sales = (avg_daily_sales * 30) / 1_000_000
-    future_monthly_target = (target_three_month / 3) / 1_000_000
 
-    values = [
-        avg_monthly_sales, avg_monthly_sales, avg_monthly_sales,
-        future_monthly_target, future_monthly_target, future_monthly_target
-    ]
+PERSIAN_MONTHS = [
+    "فروردین", "اردیبهشت", "خرداد",
+    "تیر", "مرداد", "شهریور",
+    "مهر", "آبان", "آذر",
+    "دی", "بهمن", "اسفند"
+]
 
-    plt.figure(figsize=(9,5))
-    plt.plot(months, values, marker='o', linewidth=2, color='blue')
-    plt.title(fa("مقایسه فروش گذشته با هدف فروش سه ماه آینده"))
-    plt.xlabel(fa("ماه"))
-    plt.ylabel(fa("مبلغ فروش (میلیون تومان)"))
-    plt.ylim(0, max(values)*1.2)
-    plt.grid(True)
 
-    # نمایش عدد هر نقطه روی نمودار
-    for i, v in enumerate(values):
-        plt.text(i, v + 0.02*max(values), f"{v:.1f}", ha='center', fontsize=10)
+def get_next_3_persian_month_names(last_month_name):
+    current_index = PERSIAN_MONTHS.index(last_month_name)
+    next_months = []
+    for i in range(1, 4):
+        next_index = (current_index + i) % 12
+        next_months.append(PERSIAN_MONTHS[next_index])
+    return next_months
 
-    plt.show(block=True)
 
-# ===============================
-# برنامه اصلی
-# ===============================
+def get_usd_from_gui():
+    root = tk.Tk()
+    root.withdraw()
+
+    try:
+        current = simpledialog.askfloat("ورودی نرخ دلار", "نرخ دلار فعلی (تومان):", parent=root)
+        if current is None:
+            return None, None
+        future = simpledialog.askfloat("ورودی نرخ دلار", "نرخ دلار پیش‌بینی‌شده (تومان):", parent=root)
+        if future is None:
+            return None, None
+        return current, future
+    finally:
+        root.destroy()
+
+
 def main():
     config = load_config()
 
-    # ---------------------------
-    # گرفتن ورودی‌ها از کاربر
-    # ---------------------------
-    try:
-        current_usd = float(input("نرخ دلار جاری (تومان): ").strip())
-        future_usd = float(input("نرخ دلار پیش‌بینی‌شده (تومان): ").strip())
-        inflation_rate = float(input("درصد تورم (مثلاً 5): ").strip()) / 100
-    except ValueError:
-        print("❌ لطفاً فقط عدد وارد کنید")
-        sys.exit(1)
+    usd_current, usd_future = get_usd_from_gui()
+    if usd_current is None or usd_future is None:
+        messagebox.showerror("خطا", "نرخ دلار وارد نشد.")
+        return
 
-    # ---------------------------
-    # میانگین فروش روزانه ۳ ماه گذشته
-    # ---------------------------
-    avg_daily_sales = fetch_avg_daily_net_sales_last_3_months(config)
-    if avg_daily_sales == 0:
-        print("❌ داده‌ای برای سه ماه اخیر پیدا نشد")
-        sys.exit(1)
+    past_sales = fetch_monthly_sales_last_3_months(config)
+    if not past_sales:
+        messagebox.showerror("خطا", "داده‌ای برای نمایش وجود ندارد.")
+        return
 
-    # ---------------------------
-    # محاسبه هدف فروش ۳ ماه آینده
-    # ---------------------------
-    target_three_month = calculate_three_month_target(
-        avg_daily_sales,
-        current_usd,
-        future_usd,
-        inflation_rate,
-        days=90
+    future_sales = forecast_next_3_months_by_usd(past_sales, usd_current, usd_future)
+
+    # آماده‌سازی داده‌های گذشته
+    past_months = [item["month"] for item in past_sales]
+    past_values = [item["sales"] / 1_000_000 for item in past_sales]
+    past_months_display = [fa(m) for m in past_months]
+
+    # آماده‌سازی داده‌های آینده
+    last_month = past_months[-1].strip()
+    future_months = get_next_3_persian_month_names(last_month)
+    future_values = [v / 1_000_000 for v in future_sales]
+    future_months_display = [fa(m) for m in future_months]
+
+    # ✨ رسم نمودار با رنگ‌های متفاوت
+    plt.figure(figsize=(10, 5))
+
+    # --- بخش 1: داده‌های واقعی (گذشته) ---
+    plt.plot(
+        past_months_display,
+        past_values,
+        marker="o",
+        color="tab:blue",      # رنگ آبی پیش‌فرض
+        label=fa("داده‌های واقعی")
     )
 
-    # ---------------------------
-    # نمایش نتایج عددی
-    # ---------------------------
-    print("\n✅ نتایج نهایی (فرمول ساده):")
-    print(f"میانگین فروش روزانه گذشته: {avg_daily_sales:,.0f} تومان")
-    print(f"نرخ دلار آینده: {future_usd:,.0f} تومان")
-    print(f"درصد تورم: {inflation_rate*100:.1f} %")
-    print(f"🎯 هدف فروش سه ماه آینده: {target_three_month:,.0f} تومان")
+    # --- بخش 2: داده‌های پیش‌بینی‌شده (آینده) ---
+    plt.plot(
+        future_months_display,
+        future_values,
+        marker="^",            # مثلث به‌جای دایره
+        color="tab:green",     # رنگ سبز برای پیش‌بینی
+        linestyle="--",        # خط چین برای تأکید بر پیش‌بینی بودن
+        label=fa("پیش‌بینی")
+    )
 
-    # ---------------------------
-    # رسم نمودار
-    # ---------------------------
-    plot_sales_comparison(avg_daily_sales, target_three_month)
+    # اتصال آخرین نقطه واقعی به اولین نقطه پیش‌بینی (خط پیوستگی)
+    plt.plot(
+        [past_months_display[-1], future_months_display[0]],
+        [past_values[-1], future_values[0]],
+        color="gray",
+        linestyle=":",
+        linewidth=1
+    )
 
-# ===============================
-# اجرای برنامه
-# ===============================
+    # عنوان و برچسب‌ها
+    plt.title(fa("پیش‌بینی فروش سه ماه آینده بر اساس نرخ دلار"))
+    plt.ylabel(fa("مبلغ فروش (میلیون تومان)"))
+    plt.grid(True, linestyle=":")
+
+    # نمایش مقادیر روی نقاط
+    for i, v in enumerate(past_values):
+        plt.text(i, v, f"{v:,.0f}", ha="center", va="bottom", color="tab:blue")
+    for i, v in enumerate(future_values):
+        plt.text(
+            i + len(past_values),  # موقعیت افقی: بعد از ماه‌های گذشته
+            v,
+            f"{v:,.0f}",
+            ha="center",
+            va="bottom",
+            color="tab:green"
+        )
+
+    # نمایش توضیحات (legend)
+    plt.legend()
+
+    plt.tight_layout()
+    plt.show()
+
+
 if __name__ == "__main__":
     main()
